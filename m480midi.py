@@ -82,7 +82,7 @@ class Board:
         self.setMutes(self.scenes[scene][1])
         print('Next scene: ' + self.scenes[scene+1][2])
     
-    # starts the scene swapping user input loop in a new thread
+    # starts the scene swapping user input loop
     def startUI(self):
         print('Press ENTER to proceed to the next scene. Type a scene label to jump to a specific scene. Type "m" to mute all and "um" to unmute all.')
         while(True):
@@ -113,4 +113,3 @@ class Board:
                     self.mutes[msg.control - 64] = bool(msg.value)
                 elif (msg.channel == 1):
                     self.mutes[msg.control - 64 + 24] = bool(msg.value)
-
