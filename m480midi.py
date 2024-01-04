@@ -20,7 +20,7 @@ class Board:
         if (channel <= 24):
             msg = mido.Message("control_change", channel=0, control=63+channel, value=1)
         else:
-            msg = mido.Message("control_change", channel=1, control=63+channel, value=1)
+            msg = mido.Message("control_change", channel=1, control=63+channel-24, value=1)
         self.outport.send(msg)
 
     # mute channels 1-48
@@ -38,7 +38,7 @@ class Board:
         if (channel <= 24):
             msg = mido.Message("control_change", channel=0, control=63+channel, value=0)
         else:
-            msg = mido.Message("control_change", channel=1, control=63+channel, value=0)
+            msg = mido.Message("control_change", channel=1, control=63+channel-24, value=0)
         self.outport.send(msg)
 
     # unmute channels 1-48
