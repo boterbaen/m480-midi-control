@@ -3,7 +3,7 @@ import threading
 
 import m480midi
 
-board = m480midi.Board()
+board = m480midi.Board(1)
 
 board.muteAll()
 
