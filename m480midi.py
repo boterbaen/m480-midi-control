@@ -3,19 +3,17 @@ import threading
 import time
 
 # TODO:
-# - test muting second rows
 # - make dca versions of everything?
 # - turn on and off fx bypass
 # - set board-local scene?
 # - add a fetch mute/fader/fx w/ RQ1
 #   - need to test all sysex functions
-# - make scenes a tuple?
-# - checksum read/calc function
+# - simplify code
 # - use observer pattern to decomplicate mutes and scenes?
 #   - not necessary probably
-# - move mute/unmute/setfaders to channel class
-# - look into using the -900 100 format thing instead of 127 for faders
-#   - setting will be complicated but getting will be soo much easier
+# - move mute/unmute/setfaders to channel class?
+# - use sysex set for faders, to correct the 127 to -905/100 translation(love u roland)
+# - add new features to the passive reading function
 
 class Board:
     def __init__(self, deviceID=1):
@@ -26,17 +24,21 @@ class Board:
         for x in range(48):
             self.channels.append(self.Channel())
         self.dcas = []
-        for x in range(8):
+        for x in range(24):
             self.dcas.append(self.Channel())
         self.fx = []
         for x in range(8):
-            self.fx.append(False)
+            self.fx.append(self.FX())
         self.scenes = [self.Scene()]
         self.currentScene = 0
 
     class Channel:
         mute = True
         fader = 97
+
+    class FX:
+        bypassL = True
+        bypassR = True
 
     class Scene:
         def __init__(self, label="0.0.0", active=[], faders=[[], []], bypassFx=[], queue=""):
@@ -94,8 +96,8 @@ class Board:
                 if (isInScene):
                     self.unmute(i+1)
 
-    # set a channels fader level, converting from the -inf to 10 scale
-    def setFader(self, channel, level):
+    # set a channels fader level, from -905 to 100
+    def setFader(self, channel, level): # NEED TO UPDATE TO USING SYSEX MSG
         self.channels[channel-1].fader = level
         if (channel <= 24):
             msg = mido.Message("control_change", channel=0, control=channel, value=level)
@@ -104,12 +106,12 @@ class Board:
         self.outport.send(msg)
 
     # toggle an fx channel's bypass setting
-    def setBypass(self, fx, bypass):
-        self.fx[fx-1] = bypass
-        #                                 MID-  DID----------  Model Id--------  RQ1-  Param Addr------------  Data-------  Checksum---------------
-        msg = mido.Message('sysex', data=(0x41, self.deviceID, 0x00, 0x00, 0x24, 0x11, 0x0C, fx-1, 0x00, 0x10, int(bypass), 128-((25+channel-1)%128))) #recalc checksum
-        self.outport.send(msg)
-    
+    #def setBypass(self, fx, bypass):
+    #    self.fx[fx-1] = bypass
+    #    #                                 MID-  DID----------  Model Id--------  RQ1-  Param Addr------------  Data-------  Checksum---------------
+    #    msg = mido.Message('sysex', data=(65, self.deviceID, 0, 0, 36, 17, 12, fx-1, 0, 12, int(bypass), '''checksum''')) #recalc checksum
+    #    self.outport.send(msg)
+
     def setScene(self, sceneNum):
         self.currentScene = sceneNum
         print('Scene ' + self.scenes[sceneNum].label)
@@ -136,55 +138,120 @@ class Board:
                         self.setScene(i)
                         break
                     i += 1
-
-    # requests a data transfer from the board for relevant properties of a channel
-    def fetch(self, channel):
-        # mutes                           MID-  DID----------  Model Id--------  RQ1-  Param Addr-----------------  Size------------------  Checksum---------------
-        msg = mido.Message('sysex', data=(0x41, self.deviceID, 0x00, 0x00, 0x24, 0x11, 0x04, channel-1, 0x00, 0x14, 0x00, 0x00, 0x00, 0x01, 128-((25+channel-1)%128)))
-        self.outport.send(msg)
-        isRecieved = False
-        while(not isRecieved):
-            msg = self.inport.receive()
-            if (not msg.type == 'sysex'):
-                continue
-            if (msg.data[:10] != (0x41, self.deviceID, 0x00, 0x00, 0x24, 0x12, 0x04, channel-1, 0x00, 0x14)):
-                self.channels[channel-1].mute = bool(msg.data[10])
-        
-        # faders                          MID-  DID----------  Model Id--------  RQ1-  Param Addr-----------------  Size------------------  Checksum---------------
-        msg = mido.Message('sysex', data=(0x41, self.deviceID, 0x00, 0x00, 0x24, 0x11, 0x04, channel-1, 0x00, 0x16, 0x00, 0x00, 0x00, 0x01, 128-((25+channel-1)%128))) # recalc checksum
-        self.outport.send(msg)
-        isRecieved = False
-        while(not isRecieved):
-            msg = self.inport.receive()
-            if (not msg.type == 'sysex'):
-                continue
-            if (msg.data[:10] != (0x41, self.deviceID, 0x00, 0x00, 0x24, 0x12, 0x04, channel-1, 0x00, 0x14)):
-                print('wip') # add binary to temp var
-        
-        # faders part 2                   MID-  DID----------  Model Id--------  RQ1-  Param Addr-----------------  Size------------------  Checksum---------------
-        msg = mido.Message('sysex', data=(0x41, self.deviceID, 0x00, 0x00, 0x24, 0x11, 0x04, channel-1, 0x00, 0x17, 0x00, 0x00, 0x00, 0x01, 128-((25+channel-1)%128))) # recalc checksum
-        self.outport.send(msg)
-        isRecieved = False
-        while(not isRecieved):
-            msg = self.inport.receive()
-            if (not msg.type == 'sysex'):
-                continue
-            if (msg.data[:10] != (0x41, self.deviceID, 0x00, 0x00, 0x24, 0x12, 0x04, channel-1, 0x00, 0x14)):
-                print('wip') # append binary to right of temp var and resolve to 127 format?
-
-
+    
     # starts passively reading updates from the board (will only detect new events)
     def startReading(self):
         while(True):
             msg = self.inport.receive()
+            print("Receiving: " + str(msg))
             if ((msg.type == 'control_change') and (msg.control  >= 64) and (msg.control <= 87)):
-                print("Receiving: " + str(msg))
                 if (msg.channel == 0):
                     self.channels[msg.control - 64].mute = bool(msg.value)
                 elif (msg.channel == 1):
                     self.channels[msg.control - 64 + 24].mute = bool(msg.value)
             elif ((msg.type == 'control_change') and (msg.control  >= 1) and (msg.control <= 24)):
                 if (msg.channel == 0):
-                    self.channels[msg.control - 1].fader = msg.value #is this 100 or 127 format?
+                    self.channels[msg.control - 1].fader = msg.value # 127 format
                 elif (msg.channel == 1):
-                    self.channels[msg.control - 1 + 24].fader = msg.value # roland why are you like this
+                    self.channels[msg.control - 1 + 24].fader = msg.value
+
+    # requests a data transfer from the board for relevant properties. defaults to all
+    def fetch(self, channels=range(1,48), fxs=range(1,8), dcas=range(1,8)):
+        for channel in channels:
+            # mutes                              MAN Device ID------- Model ID- RQ1 Param Addr---------- Size------- Checksum----------------
+            msgOut = mido.Message('sysex', data=(65, self.deviceID-1, 0, 0, 36, 17, 4, channel-1, 0, 20, 0, 0, 0, 1, 128-((25+channel-1)%128)))
+            print('fetching mute')
+            print(msgOut)
+            self.outport.send(msgOut)
+            isRecieved = False
+            while(not isRecieved):
+                msgIn = self.inport.receive()
+                if (not msgIn.type == 'sysex'):
+                    continue
+                if (msgIn.data[:5]+msgIn.data[6:10] == msgOut.data[:5]+msgOut.data[6:10]):
+                    print('mute response! mute is ' + str(msgIn.data[10]))
+                    self.channels[channel-1].mute = bool(msgIn.data[10])
+                    isRecieved = True
+            # fader                              MAN Device ID------- Model ID- RQ1 Param Addr---------- Size--------- Checksum----------------
+            msgOut = mido.Message('sysex', data=(65, self.deviceID-1, 0, 0, 36, 17, 4, channel-1, 0, 22, 0, 0, 0, 127, 128-((153+channel-1)%128)))
+            print('fetching fader')
+            print(msgOut)
+            self.outport.send(msgOut)
+            isRecieved = False
+            while(not isRecieved):
+                msgIn = self.inport.receive()
+                if (not msgIn.type == 'sysex'):
+                    continue
+                if (msgIn.data[:5]+msgIn.data[6:10] == msgOut.data[:5]+msgOut.data[6:10]):
+                    print('fader a response! got bin ' + bin(msgIn.data[10]))
+                    print('fader b response! got bin ' + bin(msgIn.data[11]))
+                    if(msgIn.data[10] == 0):
+                        level = msgIn.data[11]
+                    else:
+                        level = -(((msgIn.data[10] << 7) + msgIn.data[11]) ^ 16383) * .1
+                    print('fader level is ' + str(level))
+                    isRecieved = True
+        
+        for fx in fxs: # FX uses weird channel joining. Add compensation for mono input?
+            # bypass                              MAN Device ID------- Model ID- RQ1 Param Addr----- Size------- Checksum----------------
+            msgOutL = mido.Message('sysex', data=(65, self.deviceID-1, 0, 0, 36, 17, 12, fx-1, 0, 16, 0, 0, 0, 1, 128-((29+fx-1)%128)))
+            msgOutR = mido.Message('sysex', data=(65, self.deviceID-1, 0, 0, 36, 17, 12, fx-1, 0, 32, 0, 0, 0, 1, 128-((45+fx-1)%128)))
+            print('fetching bypass L')
+            print(msgOutL)
+            self.outport.send(msgOutL)
+            self.outport.send(msgOutR)
+            isRecieved = False
+            while(not isRecieved):
+                msgIn = self.inport.receive()
+                if (not msgIn.type == 'sysex'):
+                    continue
+                if (msgIn.data[:5]+msgIn.data[6:10] == msgOutL.data[:5]+msgOutL.data[6:10]):
+                    print('bypass L response! bypass is ' + str(msgIn.data[10]))
+                    self.fx[fx-1].bypassL = bool(msgIn.data[10])
+                    isRecieved = True
+            print('fetching bypass R')
+            print(msgOutR)
+            isRecieved = False
+            while(not isRecieved):
+                msgIn = self.inport.receive()
+                if (not msgIn.type == 'sysex'):
+                    continue
+                if (msgIn.data[:5]+msgIn.data[6:10] == msgOutR.data[:5]+msgOutR.data[6:10]):
+                    print('bypass R response! bypass is ' + str(msgIn.data[10]))
+                    self.fx[fx-1].bypassR = bool(msgIn.data[10])
+                    isRecieved = True
+
+        for channel in dcas: # Still need to test
+            # mutes                              MAN Device ID------- Model ID- RQ1 Param Addr---------- Size------- Checksum----------------
+            msgOut = mido.Message('sysex', data=(65, self.deviceID-1, 0, 0, 36, 17, 11, channel-1, 0, 20, 0, 0, 0, 1, 128-((22+channel-1)%128)))
+            print('fetching mute')
+            print(msgOut)
+            self.outport.send(msgOut)
+            isRecieved = False
+            while(not isRecieved):
+                msgIn = self.inport.receive()
+                if (not msgIn.type == 'sysex'):
+                    continue
+                if (msgIn.data[:5]+msgIn.data[6:10] == msgOut.data[:5]+msgOut.data[6:10]):
+                    print('mute response! mute is ' + str(msgIn.data[10]))
+                    self.channels[channel-1].mute = bool(msgIn.data[10])
+                    isRecieved = True
+            # fader                              MAN Device ID------- Model ID- RQ1 Param Addr---------- Size--------- Checksum----------------
+            msgOut = mido.Message('sysex', data=(65, self.deviceID-1, 0, 0, 36, 17, 11, channel-1, 0, 22, 0, 0, 0, 127, 128-((160+channel-1)%128)))
+            print('fetching fader')
+            print(msgOut)
+            self.outport.send(msgOut)
+            isRecieved = False
+            while(not isRecieved):
+                msgIn = self.inport.receive()
+                if (not msgIn.type == 'sysex'):
+                    continue
+                if (msgIn.data[:5]+msgIn.data[6:10] == msgOut.data[:5]+msgOut.data[6:10]):
+                    print('fader a response! got bin ' + bin(msgIn.data[10]))
+                    print('fader b response! got bin ' + bin(msgIn.data[11]))
+                    if(msgIn.data[10] == 0):
+                        level = msgIn.data[11]
+                    else:
+                        level = -(((msgIn.data[10] << 7) + msgIn.data[11]) ^ 16383) * .1
+                    print('fader level is ' + str(level))
+                    isRecieved = True
