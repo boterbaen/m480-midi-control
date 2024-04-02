@@ -1,9 +1,10 @@
 import mido
+import time
 
 # TODO:
 # - add fader levels to scenes?
-#   - likely will not be very useful. not necessary.
-# - make dca setters?
+#   - likely will not be very useful. maybe in the future.
+# - make dca setters? idk
 #   - dca cant use channel class as is. the midi out is for regular ch
 #   - expand setters to include dcas as >48?
 # - turn on and off fx bypass?
@@ -17,6 +18,16 @@ import mido
 inport = mido.open_input('V-Mixer MIDI IN 0')
 outport = mido.open_output('V-Mixer MIDI OUT 1')
 
+#class DummyPort:
+#    def send(message):
+#        print(str(message))
+
+#    def receive():
+#        while(True):
+#            time.sleep(1000)
+#inport = DummyPort
+#outport = DummyPort
+
 class Board:
     def __init__(self, deviceID=1):
         self.deviceID = deviceID
@@ -28,7 +39,7 @@ class Board:
             self.dcas.append(self.Channel(x+1))
         self.scenes = [self.Scene()]
         self.currentScene = 0
-
+        self.mutesIgnore = [] # setActive and setMutes will ignore the channels listed. they will be mutable only by the channel's setMute
     class Channel:
         def __init__(self, num, mute=True, fader=0):
             self.num = num
@@ -65,41 +76,53 @@ class Board:
             self.active = active
             self.queue = queue
 
-    # provide a list of channels and their desired mute status
+    # provide a list of channels and their desired mute status. returns a list of channels modified
     def setMutes(self, channels, status=True):
+        for i, channel in enumerate(channels):
+            if isinstance(channel, list): # handles nested lists
+                channels.extend(channel)
+                channels.pop(i)
+        changed = []
         for channel in channels:
+            if self.checkIgnore(channel):
+                continue
             self.channels[channel-1].setMute(status)
+            changed.append(channel)
+        return changed
+
+    # provide a channel. will return true if it is in the setActive ignore list
+    def checkIgnore(self, channel):
+        for member in self.mutesIgnore:
+            if member == channel:
+                return True
+        return False
 
     # provide a list of channels to be unmuted. all excluded channels will be muted
     def setActive(self, channels):
-        for i in range(48):
-            isInScene = False
-            if not self.channels[i].mute:
-                for channel in channels:
-                    if channel == i+1:
-                        isInScene = True
-                        break
-                if not isInScene:
-                    self.channels[i].setMute(True)
-            else:
-                for channel in channels:
-                    if channel == i+1:
-                        isInScene = True
-                        break
-                if isInScene:
-                    self.channels[i].setMute(False)
+        for i, channel in enumerate(channels):
+            if isinstance(channel, list): # handles nested lists
+                channels.extend(channel)
+                channels.pop(i)
+        unmuted = self.setMutes(channels, False)
+        print("just unmuted channels " + str(unmuted))
+        muted = self.setMutes([i for i in range(1, 49) if i not in channels], True)
+        print("just muted channels " + str(muted))
 
     # provide a list of channels and a singular desired fader level
     def setFaders(self, channels, level):
         for channel in channels:
                 self.setFader(channel, level)
 
-    # set the board to reflect one of the saved scenes via its index
+    # set the board to reflect one of the saved scenes via its index. returns success
     def setScene(self, sceneNum):
+        if (sceneNum >= len(self.scenes)):
+            print('Scene is out of range')
+            return False
         self.currentScene = sceneNum
         print('Scene ' + self.scenes[sceneNum].label)
         self.setActive(self.scenes[sceneNum].active)
-        print('Next scene at: ' + self.scenes[sceneNum].queue)
+        if self.currentScene < len(self.scenes)-1: print('Next scene at: ' + self.scenes[sceneNum+1].queue)
+        return True
     
     # start a rudimentary scene swapping user input loop
     def startUI(self):
@@ -107,7 +130,8 @@ class Board:
         while True:
             cin = input()
             if  cin == '':
-                self.setScene(self.currentScene + 1)
+                if len(self.scenes) > self.currentScene:
+                    self.setScene(self.currentScene + 1)
             elif cin == 'exit':
                 exit()
             else:
