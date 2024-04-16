@@ -67,7 +67,7 @@ class Board:
                 dataB = data - (dataA << 7)
             #                                 MID DID------------- Model Id- DT1 Param Addr---------- Data--------- Checksum-------------------------------
             msg = mido.Message('sysex', data=(65, self.deviceID-1, 0, 0, 36, 18, 4, self.num-1, 0, 22, dataA, dataB, 128-(26+dataA+dataB+self.num-1)%128))
-            print(msg)
+            #print(msg)
             outport.send(msg)
 
     class Scene:
@@ -104,9 +104,9 @@ class Board:
                 channels.extend(channel)
                 channels.pop(i)
         unmuted = self.setMutes(channels, False)
-        print("just unmuted channels " + str(unmuted))
+        #print("just unmuted channels " + str(unmuted))
         muted = self.setMutes([i for i in range(1, 49) if i not in channels], True)
-        print("just muted channels " + str(muted))
+        #print("just muted channels " + str(muted))
 
     # provide a list of channels and a singular desired fader level
     def setFaders(self, channels, level):
@@ -146,12 +146,12 @@ class Board:
     def startReading(self):
         while True:
             msgIn = inport.receive()
-            print("Receiving: " + str(msgIn))
+            #print("Receiving: " + str(msgIn))
             # verifies source is the registered m480 (other roland boards will have a different sequence of values here)
             if msgIn.type == 'sysex' and msgIn.data[:6] == (65, self.deviceID-1, 0, 0, 36, 18):
                 if msgIn.data[6:7]+msgIn.data[8:10] == (4, 0, 20): # ch mute
                     self.channels[msgIn.data[7]].mute = bool(msgIn.data[10])
-                    print('recieved mute ' + str(msgIn.data[10]) + ' on ch ' + str(msgIn.data[7]))
+                    #print('recieved mute ' + str(msgIn.data[10]) + ' on ch ' + str(msgIn.data[7]))
                 elif msgIn.data[6:7]+msgIn.data[8:10] == (4, 0, 22): # ch fader
                     if msgIn.data[10] == 0:
                         level = msgIn.data[11]
@@ -159,7 +159,7 @@ class Board:
                         # uses twos complement to convert negatives
                         data = (msgIn.data[10]<<7) + msgIn.data[11]
                         level = (((data - 1) ^ 0b11111111111111) * -1) * 0.1
-                    print('recieved fader ' + str(level) + ' on ch ' + str(msgIn.data[7]))
+                    #print('recieved fader ' + str(level) + ' on ch ' + str(msgIn.data[7]))
                     self.channels[msgIn.data[7]].fader = level 
 
     # requests a data transfer from the board for relevant properties. defaults to all ch and dca
@@ -167,23 +167,23 @@ class Board:
         for channel in channels:
             # mutes                              MAN Device ID------- Model ID- RQ1 Param Addr---------- Size------- Checksum----------------
             msgOut = mido.Message('sysex', data=(65, self.deviceID-1, 0, 0, 36, 17, 4, channel-1, 0, 20, 0, 0, 0, 1, 128-((25+channel-1)%128)))
-            print('fetching mute')
-            print(msgOut)
+            #print('fetching mute')
+            #print(msgOut)
             outport.send(msgOut)
             # fader                              MAN Device ID------- Model ID- RQ1 Param Addr---------- Size--------- Checksum----------------
             msgOut = mido.Message('sysex', data=(65, self.deviceID-1, 0, 0, 36, 17, 4, channel-1, 0, 22, 0, 0, 0, 127, 128-((153+channel-1)%128)))
-            print('fetching fader')
-            print(msgOut)
+            #print('fetching fader')
+            #print(msgOut)
             outport.send(msgOut)
 
         for channel in dcas: # Still need to test
             # mutes                              MAN Device ID------- Model ID- RQ1 Param Addr---------- Size------- Checksum----------------
             msgOut = mido.Message('sysex', data=(65, self.deviceID-1, 0, 0, 36, 17, 11, channel-1, 0, 20, 0, 0, 0, 1, 128-((22+channel-1)%128)))
-            print('fetching dca  mute')
-            print(msgOut)
+            #print('fetching dca  mute')
+            #print(msgOut)
             outport.send(msgOut)
             # fader                              MAN Device ID------- Model ID- RQ1 Param Addr---------- Size--------- Checksum----------------
             msgOut = mido.Message('sysex', data=(65, self.deviceID-1, 0, 0, 36, 17, 11, channel-1, 0, 22, 0, 0, 0, 127, 128-((160+channel-1)%128)))
-            print('fetching dca fader')
-            print(msgOut)
+            #print('fetching dca fader')
+            #print(msgOut)
             outport.send(msgOut)
